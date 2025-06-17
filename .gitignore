@@ -3,6 +3,7 @@
 
 # Include dotfiles
 !.gitignore
+!.tmux.conf
 !.config/
 !.config/nvim/
 !.config/nvim/init.lua
