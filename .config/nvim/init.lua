@@ -384,6 +384,13 @@ require('lazy').setup({
       },
     },
   },
+
+  {
+    -- Scala
+    'scalameta/nvim-metals',
+    dependencies = { 'nvim-lua/plenary.nvim' },
+  },
+
   {
     -- Main LSP Configuration
     'neovim/nvim-lspconfig',
@@ -639,6 +646,9 @@ require('lazy').setup({
         automatic_installation = false,
         handlers = {
           function(server_name)
+            if server_name == 'metals' then
+              return -- nvim-metals handles Scala
+            end
             local server = servers[server_name] or {}
             -- This handles overriding only values explicitly passed
             -- by the server configuration above. Useful when disabling
@@ -648,6 +658,26 @@ require('lazy').setup({
           end,
         },
       }
+
+      local metals = require 'metals'
+      local metals_config = metals.bare_config()
+
+      -- share your completion capabilities, etc.
+      metals_config.capabilities = capabilities
+
+      -- optional niceties
+      metals_config.settings = {
+        showImplicitArguments = true,
+        javaHome = '/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home',
+      }
+
+      -- start/attach Metals when opening Scala/SBT
+      vim.api.nvim_create_autocmd('FileType', {
+        pattern = { 'scala', 'sbt' },
+        callback = function()
+          metals.initialize_or_attach(metals_config)
+        end,
+      })
     end,
   },
 
