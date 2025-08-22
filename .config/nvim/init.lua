@@ -77,6 +77,11 @@ vim.o.scrolloff = 10
 -- See `:help 'confirm'`
 vim.o.confirm = true
 
+vim.opt.expandtab = true -- use spaces instead of tabs
+vim.opt.tabstop = 4 -- number of spaces a <Tab> counts for
+vim.opt.shiftwidth = 4 -- number of spaces used for each step of (auto)indent
+vim.opt.softtabstop = 4 -- number of spaces a <Tab> inserts in insert mode
+
 -- [[ Basic Keymaps ]]
 --  See `:help vim.keymap.set()`
 
