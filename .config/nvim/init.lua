@@ -5,7 +5,7 @@ vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
 -- Set to true if you have a Nerd Font installed and selected in the terminal
-vim.g.have_nerd_font = false
+vim.g.have_nerd_font = true
 
 -- [[ Setting options ]]
 -- See `:help vim.o`
@@ -376,6 +376,15 @@ require('lazy').setup({
     end,
   },
 
+  {
+    'chomosuke/typst-preview.nvim',
+    ft = 'typst',
+    build = function()
+      require('typst-preview').update() -- This installs the prebuilt binary
+    end,
+    opts = {},
+  },
+
   -- LSP Plugins
   {
     -- `lazydev` configures Lua LSP for your Neovim config, runtime and plugins
@@ -388,12 +397,6 @@ require('lazy').setup({
         { path = '${3rd}/luv/library', words = { 'vim%.uv' } },
       },
     },
-  },
-
-  {
-    -- Scala
-    'scalameta/nvim-metals',
-    dependencies = { 'nvim-lua/plenary.nvim' },
   },
 
   {
@@ -414,28 +417,6 @@ require('lazy').setup({
       'saghen/blink.cmp',
     },
     config = function()
-      -- Brief aside: **What is LSP?**
-      --
-      -- LSP is an initialism you've probably heard, but might not understand what it is.
-      --
-      -- LSP stands for Language Server Protocol. It's a protocol that helps editors
-      -- and language tooling communicate in a standardized fashion.
-      --
-      -- In general, you have a "server" which is some tool built to understand a particular
-      -- language (such as `gopls`, `lua_ls`, `rust_analyzer`, etc.). These Language Servers
-      -- (sometimes called LSP servers, but that's kind of like ATM Machine) are standalone
-      -- processes that communicate with some "client" - in this case, Neovim!
-      --
-      -- LSP provides Neovim with features like:
-      --  - Go to definition
-      --  - Find references
-      --  - Autocompletion
-      --  - Symbol Search
-      --  - and more!
-      --
-      -- Thus, Language Servers are external tools that must be installed separately from
-      -- Neovim. This is where `mason` and related plugins come into play.
-      --
       -- If you're wondering about lsp vs treesitter, you can check out the wonderfully
       -- and elegantly composed help section, `:help lsp-vs-treesitter`
 
@@ -591,6 +572,7 @@ require('lazy').setup({
       --  - capabilities (table): Override fields in capabilities. Can be used to disable certain LSP features.
       --  - settings (table): Override the default settings passed when initializing the server.
       --        For example, to see the options for `lua_ls`, you could go to: https://luals.github.io/wiki/settings/
+
       local servers = {
         clangd = {},
         -- gopls = {},
@@ -601,7 +583,8 @@ require('lazy').setup({
             },
           },
         },
-        -- rust_analyzer = {},
+
+        rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
         -- Some languages (like typescript) have entire language plugins that can be useful:
@@ -610,6 +593,10 @@ require('lazy').setup({
         -- But for many setups, the LSP (`ts_ls`) will work just fine
         -- ts_ls = {},
         --
+        --
+        texlab = {
+          filetypes = { 'tex' },
+        },
 
         lua_ls = {
           -- cmd = { ... },
@@ -625,6 +612,14 @@ require('lazy').setup({
             },
           },
         },
+
+        verible = {
+          filetypes = { 'verilog', 'systemverilog' },
+        },
+
+        vtsls = {},
+
+        vue_ls = {},
       }
 
       -- Ensure the servers and tools above are installed
@@ -651,38 +646,96 @@ require('lazy').setup({
         automatic_installation = false,
         handlers = {
           function(server_name)
-            if server_name == 'metals' then
-              return -- nvim-metals handles Scala
-            end
             local server = servers[server_name] or {}
+            if server_name == 'vue_ls' or server_name == 'vtsls' then
+              return
+            end
             -- This handles overriding only values explicitly passed
             -- by the server configuration above. Useful when disabling
             -- certain features of an LSP (for example, turning off formatting for ts_ls)
+
+            -- local opts = vim.tbl_deep_extend('force', { capabilities = capabilities }, server)
+            -- require('lspconfig')[server_name].setup(opts)
+
             server.capabilities = vim.tbl_deep_extend('force', {}, capabilities, server.capabilities or {})
-            require('lspconfig')[server_name].setup(server)
+            -- require('lspconfig')[server_name].setup(server)
+            vim.lsp.config['server'].setup(server)
           end,
         },
       }
 
-      local metals = require 'metals'
-      local metals_config = metals.bare_config()
+      -- Path where Mason installs vue-language-server
+      local vue_language_server_path = vim.fn.stdpath 'data' .. '/mason/packages/vue-language-server/node_modules/@vue/language-server'
 
-      -- share your completion capabilities, etc.
-      metals_config.capabilities = capabilities
-
-      -- optional niceties
-      metals_config.settings = {
-        showImplicitArguments = true,
-        javaHome = '/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home',
+      -- Filetypes handled by the TS server
+      local tsserver_filetypes = {
+        'typescript',
+        'javascript',
+        'javascriptreact',
+        'typescriptreact',
+        'vue',
       }
 
-      -- start/attach Metals when opening Scala/SBT
-      vim.api.nvim_create_autocmd('FileType', {
-        pattern = { 'scala', 'sbt' },
-        callback = function()
-          metals.initialize_or_attach(metals_config)
+      -- Vue TS plugin descriptor (used by vtsls)
+      local vue_plugin = {
+        name = '@vue/typescript-plugin',
+        location = vue_language_server_path,
+        languages = { 'vue' },
+        configNamespace = 'typescript',
+      }
+
+      -- vtsls config (TypeScript LSP)
+      local vtsls_config = {
+        capabilities = capabilities,
+        settings = {
+          vtsls = {
+            tsserver = {
+              globalPlugins = { vue_plugin },
+            },
+          },
+        },
+        filetypes = tsserver_filetypes,
+      }
+
+      -- vue_ls config (Vue LSP)
+      -- Your forwarding logic stays the same.
+      local vue_ls_config = {
+        capabilities = capabilities,
+        on_init = function(client)
+          client.handlers['tsserver/request'] = function(_, result, context)
+            local vtsls_clients = vim.lsp.get_clients {
+              bufnr = context.bufnr,
+              name = 'vtsls',
+            }
+
+            if #vtsls_clients == 0 then
+              vim.notify('Could not find `vtsls` LSP client; `vue_ls` will not work without it.', vim.log.levels.ERROR)
+              return
+            end
+
+            local ts_client = vtsls_clients[1]
+            local param = unpack(result)
+            local id, command, payload = unpack(param)
+
+            ts_client:exec_cmd({
+              title = 'vue_request_forward',
+              command = 'typescript.tsserverRequest',
+              arguments = { command, payload },
+            }, { bufnr = context.bufnr }, function(_, r)
+              local response = r and r.body
+              local response_data = { { id, response } }
+              client:notify('tsserver/response', response_data)
+            end)
+          end
         end,
-      })
+      }
+
+      vim.lsp.config['vtsls'] = vtsls_config
+      vim.lsp.config['vue_ls'] = vue_ls_config
+
+      -- Start servers
+      vim.lsp.start(vim.lsp.config['vtsls'])
+      vim.lsp.start(vim.lsp.config['vue_ls'])
     end,
   },
 
